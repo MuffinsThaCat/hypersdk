@@ -6,6 +6,7 @@ members = [
   "x/contracts/examples/counter",
   "x/contracts/examples/counter-external",
   "x/contracts/examples/automated-market-maker",
+  "x/contracts/examples/actus",
   "x/contracts/wasmlanche/tests/test-crate",
   "x/contracts/wasmlanche/tests/bench-crate",
   "x/contracts/test/contracts/*",

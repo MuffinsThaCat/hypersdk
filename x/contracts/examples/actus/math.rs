@@ -1,4 +1,4 @@
-use wasmlanche::Units;
+use token::Units;
 
 /// Constants for time calculations
 const SECONDS_PER_DAY: u64 = 86400;

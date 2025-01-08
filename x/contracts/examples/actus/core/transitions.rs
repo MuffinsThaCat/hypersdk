@@ -1,7 +1,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use wasmlanche::Units;
+use token::Units;
 
 use super::types::*;
+use super::Error;
 use super::Result;
 use crate::math;
 
@@ -105,12 +106,11 @@ impl TransitionEngine {
                 Ok(None)
             },
 
-            // Rate Reset
             EventType::RR => {
                 // If your contract logic supports `next_reset_rate`
-                if let Some(rate) = terms.next_reset_rate {
+                // if let Some(rate) = terms.next_reset_rate {
                     state.nominal_interest_rate = rate;
-                }
+                // }
                 Ok(None)
             },
 
