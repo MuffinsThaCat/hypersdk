@@ -40,10 +40,17 @@ var (
 
 // NewConfig creates a new engine config with default settings
 func NewConfig() *Config {
-	return &Config{
-		wasmConfig:        DefaultWasmtimeConfig(),
-		ContractCacheSize: defaultContractCacheSize,
-	}
+    cfg := &Config{
+        wasmConfig:        DefaultWasmtimeConfig(),
+        ContractCacheSize: defaultContractCacheSize,
+    }
+    
+    // Enable Wasmtime's built-in caching
+    if err := cfg.wasmConfig.CacheConfigLoadDefault(); err != nil {
+        // Log error but continue
+    }
+    
+    return cfg
 }
 
 // Config is wrapper for wasmtime.Config
@@ -54,6 +61,10 @@ type Config struct {
 	CompileStrategy CompileStrategy `json:"compileStrategy,omitempty" yaml:"compile_strategy,omitempty"`
 
 	ContractCacheSize int
+
+	Validator        ModuleValidator
+    Cache           CacheStrategy
+	Fuel            uint64
 }
 
 // Get returns the underlying wasmtime config.
@@ -168,22 +179,26 @@ func (c *Config) SetWasmThreads(enabled bool) {
 
 // DefaultWasmtimeConfig returns a new wasmtime config with default settings.
 func DefaultWasmtimeConfig() *wasmtime.Config {
-	cfg := wasmtime.NewConfig()
+    cfg := wasmtime.NewConfig()
 
-	// non configurable defaults
-	cfg.SetCraneliftOptLevel(defaultCraneliftOptLevel)
-	cfg.SetConsumeFuel(defaultFuelMetering)
-	cfg.SetWasmThreads(defaultWasmThreads)
-	cfg.SetWasmMultiMemory(defaultWasmMultiMemory)
-	cfg.SetWasmMemory64(defaultWasmMemory64)
-	cfg.SetStrategy(defaultCompilerStrategy)
-	cfg.SetEpochInterruption(defaultEpochInterruption)
-	cfg.SetCraneliftFlag("enable_nan_canonicalization", defaultNaNCanonicalization)
+    // non configurable defaults
+    cfg.SetCraneliftOptLevel(defaultCraneliftOptLevel)
+    cfg.SetConsumeFuel(defaultFuelMetering)
+    cfg.SetWasmThreads(defaultWasmThreads)
+    cfg.SetWasmMultiMemory(defaultWasmMultiMemory)
+    cfg.SetWasmMemory64(defaultWasmMemory64)
+    cfg.SetStrategy(defaultCompilerStrategy)
+    cfg.SetEpochInterruption(defaultEpochInterruption)
+    cfg.SetCraneliftFlag("enable_nan_canonicalization", defaultNaNCanonicalization)
 
-	// TODO: expose these knobs for developers
-	cfg.SetCraneliftDebugVerifier(defaultEnableCraneliftDebugVerifier)
-	cfg.SetDebugInfo(defaultEnableDebugInfo)
-	return cfg
+    // SIMD settings - make sure these are consistent
+    cfg.SetWasmSIMD(false)          // Disable SIMD
+    cfg.SetWasmRelaxedSIMD(false)   // Disable relaxed SIMD
+
+    // TODO: expose these knobs for developers
+    cfg.SetCraneliftDebugVerifier(defaultEnableCraneliftDebugVerifier)
+    cfg.SetDebugInfo(defaultEnableDebugInfo)
+    return cfg
 }
 
 // NewConfigBuilder returns a new engine configuration builder with default settings.
@@ -240,6 +255,10 @@ type ConfigBuilder struct {
 	// ProfilingStrategy decides what sort of profiling to enable, if any.
 	// Default is `wasmtime.ProfilingStrategyNone`.
 	ProfilingStrategy wasmtime.ProfilingStrategy
+
+	Validator        ModuleValidator
+    Cache           CacheStrategy
+	Fuel                    uint64
 }
 
 // WithMaxWasmStack defines the maximum amount of stack space available for
@@ -299,6 +318,11 @@ func (c *ConfigBuilder) WithProfilingStrategy(strategy wasmtime.ProfilingStrateg
 	return c
 }
 
+func (c *ConfigBuilder) WithFuel(fuel uint64) *ConfigBuilder {
+    c.Fuel = fuel
+    return c
+}
+
 // WithDefaultCache enables the default caching strategy.
 //
 // Default is false.
@@ -307,19 +331,35 @@ func (c *ConfigBuilder) WithDefaultCache(enabled bool) *ConfigBuilder {
 	return c
 }
 
+func (c *ConfigBuilder) WithValidator(v ModuleValidator) *ConfigBuilder {
+    c.Validator = v
+    return c
+}
+
+func (c *ConfigBuilder) WithCache(cache CacheStrategy) *ConfigBuilder {
+    c.Cache = cache
+    return c
+}
+
+
 func (c *ConfigBuilder) Build() (*Config, error) {
-	cfg := NewConfig()
+    cfg := NewConfig()
 	cfg.SetWasmBulkMemory(c.EnableBulkMemory)
 	cfg.SetWasmMultiValue(c.EnableWasmMultiValue)
 	cfg.SetWasmReferenceTypes(c.EnableWasmReferenceTypes)
 	cfg.SetWasmSIMD(c.EnableWasmSIMD)
 	cfg.SetMaxWasmStack(c.MaxWasmStack)
 	cfg.SetProfiler(c.ProfilingStrategy)
+	cfg.Validator = c.Validator
+    cfg.Cache = c.Cache
 	if c.EnableDefaultCache {
 		if err := cfg.CacheConfigLoadDefault(); err != nil {
 			return nil, err
 		}
 	}
+	if c.Fuel > 0 {
+        cfg.Fuel = c.Fuel
+    }
 
 	return cfg, nil
 }

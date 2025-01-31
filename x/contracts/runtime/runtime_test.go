@@ -19,71 +19,88 @@ import (
 // Benchmarks the time it takes to get a module when it is not cached
 // BenchmarkRuntimeModuleNotCached-10    	     145	  10262426 ns/op	  245882 B/op	       9 allocs/op
 func BenchmarkRuntimeModuleNotCached(b *testing.B) {
-	require := require.New(b)
+    require := require.New(b)
+    ctx := context.Background()
 
-	ctx := context.Background()
-	rt := newTestRuntime(ctx)
+    rt := newTestRuntime(ctx)
+    contract, err := rt.newTestContract("simple")
+    require.NoError(err)
 
-	contract, err := rt.newTestContract("simple")
-	require.NoError(err)
+    callInfo := &CallInfo{
+        Contract:     contract.Address,
+        State:        rt.StateManager,
+        FunctionName: "get_value",
+        Params:       test.SerializeParams(),
+        Fuel:        1000000,
+    }
+    newInfo, err := rt.callContext.createCallInfo(callInfo)
+    require.NoError(err)
+    programID, err := callInfo.State.GetAccountContract(ctx, newInfo.Contract)
+    require.NoError(err)
 
-	callInfo := &CallInfo{
-		Contract:     contract.Address,
-		State:        rt.StateManager,
-		FunctionName: "get_value",
-		Params:       test.SerializeParams(),
-	}
-	newInfo, err := rt.callContext.createCallInfo(callInfo)
-	require.NoError(err)
-	programID, err := callInfo.State.GetAccountContract(ctx, newInfo.Contract)
-	require.NoError(err)
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        module, err := rt.callContext.r.getModule(ctx, newInfo, programID)
+        require.NoError(err)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err = rt.callContext.r.getModule(ctx, newInfo, programID)
-		require.NoError(err)
+        instance, err := createEphemeralInstance(
+            rt.callContext.r.engine,
+            rt.callContext.r.linker,
+            module,
+            newInfo.Fuel,
+        )
+        require.NoError(err)
+        instance.Close()
 
-		b.StopTimer()
-		// reset module
-		rt.callContext.r.contractCache.Flush()
-		b.StartTimer()
-	}
+        b.StopTimer()
+        rt.callContext.r.contractCache.Flush()
+        runtime.GC()
+        b.StartTimer()
+    }
 }
 
 // Benchmarks the time it takes to get a module when it is cached
 // BenchmarkRuntimeModuleCached-10    	 2429497	       495.1 ns/op	      32 B/op	       1 allocs/op
 func BenchmarkRuntimeModuleCached(b *testing.B) {
-	require := require.New(b)
+    require := require.New(b)
+    ctx := context.Background()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+    rt := newTestRuntime(ctx)
+    contract, err := rt.newTestContract("simple")
+    require.NoError(err)
 
-	rt := newTestRuntime(ctx)
-	contract, err := rt.newTestContract("simple")
-	require.NoError(err)
+    result, err := contract.Call("get_value")
+    require.NoError(err)
+    require.Equal(uint64(0), into[uint64](result))
 
-	result, err := contract.Call("get_value")
-	require.NoError(err)
-	require.Equal(uint64(0), into[uint64](result))
+    b.ResetTimer()
 
-	b.ResetTimer()
+    callInfo := &CallInfo{
+        Contract:     contract.Address,
+        State:        rt.StateManager,
+        FunctionName: "get_value",
+        Params:       test.SerializeParams(),
+    }
+    newInfo, err := rt.callContext.createCallInfo(callInfo)
+    require.NoError(err)
+    programID, err := callInfo.State.GetAccountContract(ctx, newInfo.Contract)
+    require.NoError(err)
 
-	callInfo := &CallInfo{
-		Contract:     contract.Address,
-		State:        rt.StateManager,
-		FunctionName: "get_value",
-		Params:       test.SerializeParams(),
-	}
-	newInfo, err := rt.callContext.createCallInfo(callInfo)
-	require.NoError(err)
-	programID, err := callInfo.State.GetAccountContract(ctx, newInfo.Contract)
-	require.NoError(err)
-
-	for i := 0; i < b.N; i++ {
-		_, err = rt.callContext.r.getModule(ctx, newInfo, programID)
-		require.NoError(err)
-	}
+    for i := 0; i < b.N; i++ {
+        module, err := rt.callContext.r.getModule(ctx, newInfo, programID)
+        require.NoError(err)
+        
+        instance, err := createEphemeralInstance(
+            rt.callContext.r.engine,
+            rt.callContext.r.linker,
+            module,
+            callInfo.Fuel,
+        )
+        require.NoError(err)
+        defer instance.Close()
+    }
 }
+
 
 // Benchmarks the time it takes to get an instance which happens on every contract call
 // Wasmitime rust allows you to pre-instantiate the module, which is not implemented in go
@@ -92,117 +109,137 @@ func BenchmarkRuntimeModuleCached(b *testing.B) {
 //
 // BenchmarkRuntimeInstance-10    	   48392	     28894 ns/op	     265 B/op	      15 allocs/op
 func BenchmarkRuntimeInstance(b *testing.B) {
-	require := require.New(b)
+    require := require.New(b)
 
-	ctx := context.Background()
-	rt := newTestRuntime(ctx)
-	contract, err := rt.newTestContract("simple")
-	require.NoError(err)
+    ctx := context.Background()
+    rt := newTestRuntime(ctx)
+    contract, err := rt.newTestContract("simple")
+    require.NoError(err)
 
-	result, err := contract.Call("get_value")
-	require.NoError(err)
-	require.Equal(uint64(0), into[uint64](result))
+    result, err := contract.Call("get_value")
+    require.NoError(err)
+    require.Equal(uint64(0), into[uint64](result))
 
-	b.ResetTimer()
+    b.ResetTimer()
 
-	callInfo := &CallInfo{
-		Contract:     contract.Address,
-		State:        rt.StateManager,
-		FunctionName: "get_value",
-		Params:       test.SerializeParams(),
-	}
-	newInfo, err := rt.callContext.createCallInfo(callInfo)
-	require.NoError(err)
-	programID, err := newInfo.State.GetAccountContract(ctx, newInfo.Contract)
-	require.NoError(err)
+    callInfo := &CallInfo{
+        Contract:     contract.Address,
+        State:        rt.StateManager,
+        FunctionName: "get_value",
+        Params:       test.SerializeParams(),
+        Fuel:        1000000, // Set appropriate fuel limit
+    }
+    newInfo, err := rt.callContext.createCallInfo(callInfo)
+    require.NoError(err)
+    programID, err := newInfo.State.GetAccountContract(ctx, newInfo.Contract)
+    require.NoError(err)
 
-	module, err := rt.callContext.r.getModule(ctx, newInfo, programID)
-	require.NoError(err)
+    module, err := rt.callContext.r.getModule(ctx, newInfo, programID)
+    require.NoError(err)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		b.StopTimer()
-		runtime.GC()
-		b.StartTimer()
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        b.StopTimer()
+        runtime.GC()
+        b.StartTimer()
 
-		inst, err := rt.callContext.r.getInstance(module)
-		require.NoError(err)
-		_ = inst
-	}
+        instance, err := createEphemeralInstance(
+            rt.callContext.r.engine,
+            rt.callContext.r.linker,
+            module,
+            newInfo.Fuel,
+        )
+        require.NoError(err)
+        defer instance.Close() // Ensure cleanup
+        _ = instance
+    }
 }
 
 // Benchmarks the time it takes to call a contract with everything instantiated
 // BenchmarkRuntimeInstanceCall-10    	   32728	     33143 ns/op	    1629 B/op	     191 allocs/op
 func BenchmarkRuntimeInstanceCall(b *testing.B) {
-	require := require.New(b)
-	ctx := context.Background()
+    require := require.New(b)
+    ctx := context.Background()
 
-	rt := newTestRuntime(ctx)
-	contract, err := rt.newTestContract("simple")
-	require.NoError(err)
+    rt := newTestRuntime(ctx)
+    contract, err := rt.newTestContract("simple")
+    require.NoError(err)
 
-	result, err := contract.Call("get_value")
-	require.NoError(err)
-	require.Equal(uint64(0), into[uint64](result))
+    result, err := contract.Call("get_value")
+    require.NoError(err)
+    require.Equal(uint64(0), into[uint64](result))
 
-	b.ResetTimer()
+    b.ResetTimer()
 
-	callInfo := &CallInfo{
-		Contract:     contract.Address,
-		State:        rt.StateManager,
-		FunctionName: "get_value",
-		Params:       test.SerializeParams(),
-	}
-	newInfo, err := rt.callContext.createCallInfo(callInfo)
-	require.NoError(err)
-	programID, err := newInfo.State.GetAccountContract(ctx, newInfo.Contract)
-	require.NoError(err)
+    callInfo := &CallInfo{
+        Contract:     contract.Address,
+        State:        rt.StateManager,
+        FunctionName: "get_value",
+        Params:       test.SerializeParams(),
+        Fuel:        1000000, // Set appropriate fuel limit
+    }
+    newInfo, err := rt.callContext.createCallInfo(callInfo)
+    require.NoError(err)
+    programID, err := newInfo.State.GetAccountContract(ctx, newInfo.Contract)
+    require.NoError(err)
 
-	module, err := rt.callContext.r.getModule(ctx, newInfo, programID)
-	require.NoError(err)
-	inst, err := rt.callContext.r.getInstance(module)
-	require.NoError(err)
-	b.ResetTimer()
-	newInfo.inst = inst
-	rt.callContext.r.setCallInfo(inst.store, newInfo)
+    module, err := rt.callContext.r.getModule(ctx, newInfo, programID)
+    require.NoError(err)
 
-	for i := 0; i < b.N; i++ {
-		result, err := inst.call(ctx, newInfo)
-		require.NoError(err)
-		_ = result
+    b.ResetTimer()
 
-		rt.callContext.r.deleteCallInfo(inst.store)
-		b.StopTimer()
-		// reset module
-		module, err = rt.callContext.r.getModule(ctx, newInfo, programID)
-		require.NoError(err)
-		inst, err = rt.callContext.r.getInstance(module)
-		require.NoError(err)
-		newInfo.inst = inst
-		b.StartTimer()
-		rt.callContext.r.setCallInfo(inst.store, newInfo)
-	}
+    for i := 0; i < b.N; i++ {
+        instance, err := createEphemeralInstance(
+            rt.callContext.r.engine,
+            rt.callContext.r.linker,
+            module,
+            newInfo.Fuel,
+        )
+        require.NoError(err)
+
+        // Set call info 
+        rt.callContext.r.setCallInfo(instance.store, newInfo)
+        
+        // Call the contract
+        result, err := instance.Call(ctx, newInfo)
+        require.NoError(err)
+        _ = result
+
+        // Cleanup
+        rt.callContext.r.deleteCallInfo(instance.store)
+        instance.Close()
+
+        b.StopTimer()
+        // Prepare for next iteration
+        module, err = rt.callContext.r.getModule(ctx, newInfo, programID)
+        require.NoError(err)
+        b.StartTimer()
+    }
 }
 
+
+// BenchmarkRuntimeCallContractBasic can remain largely the same since it uses
+// the high-level CallWithSerializedParams which will automatically use the new
+// ephemeral instance approach
 func BenchmarkRuntimeCallContractBasic(b *testing.B) {
-	require := require.New(b)
-	ctx := context.Background()
+    require := require.New(b)
+    ctx := context.Background()
 
-	rt := newTestRuntime(ctx)
-	contract, err := rt.newTestContract("simple")
-	require.NoError(err)
+    rt := newTestRuntime(ctx)
+    contract, err := rt.newTestContract("simple")
+    require.NoError(err)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		result, err := contract.CallWithSerializedParams("get_value", nil)
-		require.NoError(err)
-		_ = result
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        result, err := contract.CallWithSerializedParams("get_value", nil)
+        require.NoError(err)
+        _ = result
 
-		b.StopTimer()
-		require.Equal(uint64(0), into[uint64](result))
-		runtime.GC()
-		b.StartTimer()
-	}
+        b.StopTimer()
+        require.Equal(uint64(0), into[uint64](result))
+        runtime.GC()
+        b.StartTimer()
+    }
 }
 
 // Benchmarks a contract that sends native balance.
@@ -366,16 +403,16 @@ func TestRuntimeCallContractBasicAttachValue(t *testing.T) {
 }
 
 func TestRuntimeCallContractBasic(t *testing.T) {
-	require := require.New(t)
-	ctx := context.Background()
+    require := require.New(t)
+    ctx := context.Background()
 
-	rt := newTestRuntime(ctx)
-	contract, err := rt.newTestContract("simple")
-	require.NoError(err)
+    rt := newTestRuntime(ctx)
+    contract, err := rt.newTestContract("simple")
+    require.NoError(err)
 
-	result, err := contract.Call("get_value")
-	require.NoError(err)
-	require.Equal(uint64(0), into[uint64](result))
+    result, err := contract.Call("get_value")
+    require.NoError(err)
+    require.Equal(uint64(0), into[uint64](result))
 }
 
 type ComplexReturn struct {
@@ -395,3 +432,4 @@ func TestRuntimeCallContractComplexReturn(t *testing.T) {
 	require.NoError(err)
 	require.Equal(ComplexReturn{Contract: contract.Address, MaxUnits: 1000}, into[ComplexReturn](result))
 }
+
